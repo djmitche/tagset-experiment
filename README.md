@@ -15,9 +15,9 @@
 
 # Ideas
 
-* Use []byte to avoid ambiguity of copying strings, allow byte buffers ← byte buffers are reused
+* Use []byte to avoid ambiguity of copying strings, allow byte buffers ← byte buffers in DSD are reused
 * Weak ref map? ← no such thing
-* Can we assume no hash collisions?
+* Can we assume no hash collisions? ← yes, it seems so.  For 10000 contexts the prob is ~1e-10 (https://preshing.com/20110504/hash-collision-probabilities/)
 
 Setting language aside, given:
 
@@ -55,3 +55,61 @@ We would like to do all of this with
 * minimal allocations (to reduce GC churn)
 * minimal scans of the tag strings
 * good cache behavior
+
+# If I was Doing This In Rust
+
+```rust
+impl Tag {
+  fn new(t: &str, card: Cardinality) -> Arc<Tag> {
+    let pool = Tag::pool_for_cardinality(card); // maybe from TLS?
+    pool.get_or_create(t)
+  }
+}
+
+impl Pool {
+  fn new(..some parameters different per cardinality..) ..
+  fn get_or_create(&mut self, t: &str) -> Arc<Tag> {
+    let h = hash(t);
+    // look for h in the existing refs, return if found
+    // otherwise create a new one, keep it, return it
+  }
+}
+
+// need this whole thing to have interior mutability (need to update hash and
+// need to transmute repr)
+pub struct TagSet {
+    hash: Option<u64>,
+    repr: TSRepr,
+}
+
+enum TSRepr {
+    // A list of tags, possibly sorted
+    Tags {
+        tags: Vec<Arc<Tag>>,
+        sorted: bool,
+    }
+
+    // A union of child TagSets
+    Union {
+        child1: Arc<TagSet>,
+        child2: Arc<TagSet>,
+        disjoint: bool,
+    }
+}
+
+impl TagSet {
+    fn hash(&self) -> Hash {
+        if let Some(h) = self.hash {
+            return h;
+        }
+
+        match self.repr {
+            Tags { tags, .. } => {
+                // iterate over tags and XOR hash together, store it
+            }
+            Union { child1, child2, disjoint } => {
+            }
+        }
+    }
+}
+```
