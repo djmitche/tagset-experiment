@@ -1,12 +1,27 @@
 package tagset
 
 import (
+	"bytes"
+
 	"github.com/djmitche/tagset/tag"
 )
+
+// (used in parsing)
+var commaSeparator = []byte(",")
+
+// A guess at tag size (16), to eliminate a few unnecessary reallocations of serializations
+const avgTagSize = 16
+
+// A shared cache for the empty TagSet
+var emptyTagSet = &TagSet{
+	serialization: []byte{},
+}
 
 // A TagSet represents a set of tags, in an efficient fashion.  TagSets
 // implicitly de-duplicate the tags they contain.  They are immutable once
 // created (in their public API; threadsafe internal mutability may be used).
+// A TagSet has a 128-bit hash, represented as two 64-bit halves.  The
+// likelihood of hash collisions is considered low enough to ignore.
 type TagSet struct {
 	// tags contains a duplicate-free list of the tags in this set.  This
 	// is not necessarily sorted!
@@ -16,24 +31,37 @@ type TagSet struct {
 	// struct's tags
 	parents [2]*TagSet
 
-	// hash is the hash of all tags in the set.  Hashes are computed from tag
-	// hashes in a way that is associative and commutative.
-	hash uint64
+	// hashH and hashL contain the hash of all tags in the set.  Hashes are
+	// computed from tag hashes in a way that is associative and commutative.
+	hashH, hashL uint64
+
+	// serialization of this tagset
+	serialization []byte
 }
 
 // NewWithoutDuplicates creates a new TagSet containing the given tags.
 //
 // The caller MUST ensure that the set of tags contains no duplicates.  The
-// caller MUST NOT modify the slice of tags after passing it to this function.
+// slice of tags is retained in the tagset and MUST not be modified after
+// passing it to this function.
 func NewWithoutDuplicates(tags []tag.Tag) *TagSet {
-	var hash uint64
+	var hashH, hashL uint64
+	serialization := make([]byte, 0, len(tags)*avgTagSize)
+
 	for _, t := range tags {
-		hash ^= t.Hash()
+		if len(serialization) > 0 {
+			serialization = append(serialization, ',')
+		}
+		serialization = append(serialization, t.Bytes()...)
+		hashH ^= t.HashH()
+		hashL ^= t.HashL()
 	}
 
 	return &TagSet{
-		tags: tags,
-		hash: hash,
+		tags:          tags,
+		hashH:         hashH,
+		hashL:         hashL,
+		serialization: serialization,
 	}
 }
 
@@ -43,24 +71,65 @@ func NewWithoutDuplicates(tags []tag.Tag) *TagSet {
 // this function.
 func New(tags []tag.Tag) *TagSet {
 	seen := map[uint64]struct{}{}
-	var hash uint64
+	var hashH, hashL uint64
+	serialization := make([]byte, 0, len(tags)*avgTagSize)
 	nondup := make([]tag.Tag, 0, len(tags))
 	for _, t := range tags {
-		h := t.Hash()
-		_, found := seen[h]
+		hh := t.HashH()
+		hl := t.HashL()
+		_, found := seen[hh] // TODO: handle hash collision
 		if !found {
 			nondup = append(nondup, t)
-			hash ^= h
+			if len(serialization) > 0 {
+				serialization = append(serialization, ',')
+			}
+			serialization = append(serialization, t.Bytes()...)
+			hashH ^= hh
+			hashL ^= hl
+			seen[hh] = struct{}{}
 		}
 	}
 
 	return &TagSet{
-		tags: nondup,
-		hash: hash,
+		tags:          nondup,
+		hashH:         hashH,
+		hashL:         hashL,
+		serialization: serialization,
 	}
 }
 
-// Union combines two TagSets into one.
+// Parse generates a TagSet from a buffer containing comma-separated tags.  It
+// detects duplicate tags propery while parsing.
+func Parse(rawTags []byte) *TagSet {
+	// TODO: cache TagSets based on the input
+
+	if len(rawTags) == 0 {
+		return emptyTagSet
+	}
+
+	tagsCount := bytes.Count(rawTags, commaSeparator) + 1
+	tags := make([]tag.Tag, tagsCount)
+
+	for i := 0; i < tagsCount-1; i++ {
+		tagPos := bytes.Index(rawTags, commaSeparator)
+		if tagPos < 0 {
+			break
+		}
+		tags[i] = tag.NewFromBytes(rawTags[:tagPos])
+		rawTags = rawTags[tagPos+len(commaSeparator):]
+	}
+	tags[tagsCount-1] = tag.NewFromBytes(rawTags)
+
+	// TODO: check for duplicates while parsing and use New or NewWithoutDuplicates
+	return New(tags)
+}
+
+// TODO: shared LRU cache for Union and DisjointUnion by hash, so that union of
+// two seen-before tagsets is re-used
+
+// Union combines two TagSets into one, handling the case where duplicates
+// exist between the two tagsets.  This is much slower than DisjointUnion, so
+// callers that can otherwise ensure disjointness should prefer DisjointUnion.
 func Union(ts1 *TagSet, ts2 *TagSet) *TagSet {
 	// Because these may not be disjoint, we allocate a new array of tags
 	// for the smaller of the two parents, and fill it with non-duplicate
@@ -74,20 +143,30 @@ func Union(ts1 *TagSet, ts2 *TagSet) *TagSet {
 	}
 
 	clone := make([]tag.Tag, 0, t2len)
-	hash := ts1.hash
+	hashH := ts1.hashH
+	hashL := ts1.hashL
+	serialization := make([]byte, 0, len(ts1.serialization)+len(ts2.tags)*avgTagSize)
+	serialization = append(serialization, ts1.serialization...)
 
 	// insert non-duplicate tags from ts2, updating the hash
 	ts2.forEach(func(t tag.Tag) {
 		if !ts1.has(t) {
 			clone = append(clone, t)
-			hash ^= t.Hash()
+			if len(serialization) > 0 {
+				serialization = append(serialization, ',')
+			}
+			serialization = append(serialization, t.Bytes()...)
+			hashH ^= t.HashH()
+			hashL ^= t.HashL()
 		}
 	})
 
 	return &TagSet{
-		tags:    clone,
-		parents: [2]*TagSet{ts1, nil},
-		hash:    hash,
+		tags:          clone,
+		parents:       [2]*TagSet{ts1, nil},
+		hashH:         hashH,
+		hashL:         hashL,
+		serialization: serialization,
 	}
 }
 
@@ -96,14 +175,40 @@ func Union(ts1 *TagSet, ts2 *TagSet) *TagSet {
 //
 // The caller MUST ensure this is the case.
 func DisjointUnion(ts1 *TagSet, ts2 *TagSet) *TagSet {
+	serialization := make([]byte, 0, len(ts1.serialization)+len(ts2.serialization)+1)
+	serialization = append(serialization, ts1.serialization...)
+	if len(serialization) > 0 {
+		serialization = append(serialization, ',')
+	}
+	serialization = append(serialization, ts2.serialization...)
+
 	return &TagSet{
-		parents: [2]*TagSet{ts1, ts2},
-		hash:    ts1.hash ^ ts2.hash,
+		parents:       [2]*TagSet{ts1, ts2},
+		hashH:         ts1.hashH ^ ts2.hashH,
+		hashL:         ts1.hashL ^ ts2.hashL,
+		serialization: serialization,
 	}
 }
 
-func (ts *TagSet) Hash() uint64 {
-	return ts.hash
+// Hash returns the 128-bit hash of this tagset, high word first
+func (ts *TagSet) Hash() (uint64, uint64) {
+	return ts.hashH, ts.hashL
+}
+
+// HashH returns the high 64 bits of this tagset's hash
+func (ts *TagSet) HashH() uint64 {
+	return ts.hashH
+}
+
+// HashL returns the low 64 bits of this tagset's hash
+func (ts *TagSet) HashL() uint64 {
+	return ts.hashL
+}
+
+// Serialization returns the serialization of this tagset. The returned
+// value MUST not be modified.
+func (ts *TagSet) Serialization() []byte {
+	return ts.serialization
 }
 
 // has determines whether a tagset contains the given tag

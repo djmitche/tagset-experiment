@@ -10,39 +10,104 @@ import (
 	"github.com/twmb/murmur3"
 )
 
-func hashOf(tags ...string) uint64 {
-	var h uint64
+func hashOf(tags ...string) (uint64, uint64) {
+	var hh, hl uint64
 	for _, t := range tags {
-		h ^= murmur3.Sum64([]byte(t))
+		thh, thl := murmur3.Sum128([]byte(t))
+		hh ^= thh
+		hl ^= thl
 	}
-	return h
+	return hh, hl
 }
 
 func TestSingleTagHash(t *testing.T) {
 	tg := tag.New("x:abc")
 	ts := NewWithoutDuplicates([]tag.Tag{tg})
-	assert.Equal(t, hashOf("x:abc"), ts.Hash())
+	expH, expL := hashOf("x:abc")
+	gotH, gotL := ts.Hash()
+	assert.Equal(t, expH, gotH)
+	assert.Equal(t, expL, gotL)
+}
+
+func TestParseEmpty(t *testing.T) {
+	ts := Parse([]byte{})
+	assert.Equal(t, uint64(0), ts.HashL())
+	assert.Equal(t, uint64(0), ts.HashH())
+	assert.Equal(t, []byte{}, ts.Serialization())
+}
+
+func TestParseSingle(t *testing.T) {
+	ts := Parse([]byte("abc:def"))
+	expH, expL := hashOf("abc:def")
+	gotH, gotL := ts.Hash()
+	assert.Equal(t, expH, gotH)
+	assert.Equal(t, expL, gotL)
+	assert.Equal(t, []byte("abc:def"), ts.Serialization())
+}
+
+func TestParseMulti(t *testing.T) {
+	ts := Parse([]byte("a,b,c"))
+	expH, expL := hashOf("a", "b", "c")
+	gotH, gotL := ts.Hash()
+	assert.Equal(t, expH, gotH)
+	assert.Equal(t, expL, gotL)
+	// NOTE: it's not part of the API that this serialization has the same
+	// order as the input, but in the current implementation that's the case.
+	assert.Equal(t, []byte("a,b,c"), ts.Serialization())
+}
+
+func TestParseMultiDupes(t *testing.T) {
+	ts := Parse([]byte("a,b,a,b,c,c"))
+	expH, expL := hashOf("a", "b", "c")
+	gotH, gotL := ts.Hash()
+	assert.Equal(t, expH, gotH)
+	assert.Equal(t, expL, gotL)
+	// NOTE: it's not part of the API that this serialization has the same
+	// order as the input, but in the current implementation that's the case.
+	assert.Equal(t, []byte("a,b,c"), ts.Serialization())
 }
 
 func TestFromBytes(t *testing.T) {
 	tg1 := tag.New("x:abc")
 	tg2 := tag.NewFromBytes([]byte("y:def"))
 	ts := NewWithoutDuplicates([]tag.Tag{tg1, tg2})
-	assert.Equal(t, hashOf("x:abc", "y:def"), ts.Hash())
+	expH, expL := hashOf("x:abc", "y:def")
+	gotH, gotL := ts.Hash()
+	assert.Equal(t, expH, gotH)
+	assert.Equal(t, expL, gotL)
 }
 
 func TestTwoTagHash(t *testing.T) {
 	tg1 := tag.New("x:abc")
 	tg2 := tag.New("y:def")
 
-	expHash := hashOf("x:abc", "y:def")
+	expH, expL := hashOf("x:abc", "y:def")
 
 	// hash should be the same regardless of order
 	ts12 := NewWithoutDuplicates([]tag.Tag{tg1, tg2})
-	assert.Equal(t, expHash, ts12.Hash())
+	got12H, got12L := ts12.Hash()
+	assert.Equal(t, expH, got12H)
+	assert.Equal(t, expL, got12L)
 
 	ts21 := NewWithoutDuplicates([]tag.Tag{tg2, tg1})
-	assert.Equal(t, expHash, ts21.Hash())
+	got21H, got21L := ts21.Hash()
+	assert.Equal(t, expH, got21H)
+	assert.Equal(t, expL, got21L)
+}
+
+func TestSimpleDisjointUnions(t *testing.T) {
+	tg1 := tag.New("w:mno")
+	ts1 := NewWithoutDuplicates([]tag.Tag{tg1})
+	tg2 := tag.New("x:abc")
+	ts2 := NewWithoutDuplicates([]tag.Tag{tg2})
+
+	expH, expL := hashOf("w:mno", "x:abc")
+
+	u := Union(ts1, ts2)
+	gotH, gotL := u.Hash()
+
+	assert.Equal(t, expH, gotH)
+	assert.Equal(t, expL, gotL)
 }
 
 func TestDisjointUnions(t *testing.T) {
@@ -56,18 +121,22 @@ func TestDisjointUnions(t *testing.T) {
 			tg4 := tag.New("z:jkl")
 			ts3 := NewWithoutDuplicates([]tag.Tag{tg3, tg4})
 
-			expHash := hashOf("w:mno", "x:abc", "y:def", "z:jkl")
+			expH, expL := hashOf("w:mno", "x:abc", "y:def", "z:jkl")
 
 			// hash should be commutative and associative, so try a bunch
 			// of combinations
-			assert.Equal(t, expHash, union(ts1, union(ts2, ts3)).Hash())
-			assert.Equal(t, expHash, union(ts1, union(ts3, ts2)).Hash())
-			assert.Equal(t, expHash, union(union(ts2, ts3), ts1).Hash())
-			assert.Equal(t, expHash, union(union(ts3, ts2), ts1).Hash())
-			assert.Equal(t, expHash, union(ts3, union(ts1, ts2)).Hash())
-			assert.Equal(t, expHash, union(ts3, union(ts2, ts1)).Hash())
-			assert.Equal(t, expHash, union(union(ts1, ts2), ts3).Hash())
-			assert.Equal(t, expHash, union(union(ts2, ts1), ts3).Hash())
+			check := func(unionedTs *TagSet) {
+				assert.Equal(t, expH, unionedTs.HashH(), "H")
+				assert.Equal(t, expL, unionedTs.HashL(), "L")
+			}
+			check(union(ts1, union(ts2, ts3)))
+			check(union(ts1, union(ts3, ts2)))
+			check(union(union(ts2, ts3), ts1))
+			check(union(union(ts3, ts2), ts1))
+			check(union(ts3, union(ts1, ts2)))
+			check(union(ts3, union(ts2, ts1)))
+			check(union(union(ts1, ts2), ts3))
+			check(union(union(ts2, ts1), ts3))
 		}
 	}
 	t.Run("Union", test(Union))
@@ -90,18 +159,23 @@ func bytesToTagSet(bytes []byte) *TagSet {
 }
 
 func TestUnionOverlappingHashes(t *testing.T) {
-	test := func(ts1 *TagSet, ts2 *TagSet, ts3 *TagSet, expHash uint64) func(*testing.T) {
+	test := func(ts1 *TagSet, ts2 *TagSet, ts3 *TagSet, expH, expL uint64) func(*testing.T) {
 		return func(t *testing.T) {
+			check := func(unionedTs *TagSet) {
+				assert.Equal(t, expH, unionedTs.HashH())
+				assert.Equal(t, expL, unionedTs.HashL())
+			}
+
 			// hash should be commutative and associative, so try a bunch
 			// of combinations
-			assert.Equal(t, expHash, Union(ts1, Union(ts2, ts3)).Hash())
-			assert.Equal(t, expHash, Union(ts1, Union(ts3, ts2)).Hash())
-			assert.Equal(t, expHash, Union(Union(ts2, ts3), ts1).Hash())
-			assert.Equal(t, expHash, Union(Union(ts3, ts2), ts1).Hash())
-			assert.Equal(t, expHash, Union(ts3, Union(ts1, ts2)).Hash())
-			assert.Equal(t, expHash, Union(ts3, Union(ts2, ts1)).Hash())
-			assert.Equal(t, expHash, Union(Union(ts1, ts2), ts3).Hash())
-			assert.Equal(t, expHash, Union(Union(ts2, ts1), ts3).Hash())
+			check(Union(ts1, Union(ts2, ts3)))
+			check(Union(ts1, Union(ts3, ts2)))
+			check(Union(Union(ts2, ts3), ts1))
+			check(Union(Union(ts3, ts2), ts1))
+			check(Union(ts3, Union(ts1, ts2)))
+			check(Union(ts3, Union(ts2, ts1)))
+			check(Union(Union(ts1, ts2), ts3))
+			check(Union(Union(ts2, ts1), ts3))
 		}
 	}
 
@@ -128,11 +202,13 @@ func TestUnionOverlappingHashes(t *testing.T) {
 		}
 
 		// and compute the hash of that union
-		var h uint64
+		var expH, expL uint64
 		for b := range seen {
-			h ^= murmur3.Sum64([]byte{b})
+			h, l := murmur3.Sum128([]byte{b})
+			expH ^= h
+			expL ^= l
 		}
 
-		t.Run(fmt.Sprintf("%d: %s %s %s", i, slice1, slice2, slice3), test(ts1, ts2, ts3, h))
+		t.Run(fmt.Sprintf("%d: %s %s %s", i, slice1, slice2, slice3), test(ts1, ts2, ts3, expH, expL))
 	}
 }
