@@ -77,10 +77,11 @@ func init() {
 
 func benchmarkParsing(size int, b *testing.B) {
 	global := tagset.NewWithoutDuplicates([]tag.Tag{tag.New("planet:earth"), tag.New("epoch:holocene")})
+	inc := len(data) / size
 	for i := 0; i < b.N; i++ {
 		common := tagset.DisjointUnion(global, tagset.NewWithoutDuplicates([]tag.Tag{tag.New("host:i-1029812")}))
-		for _, row := range data[:size] {
-			tagset.Union(tagset.Parse(row), common)
+		for j := 0; j < len(data); j += inc {
+			tagset.Union(tagset.Parse(data[i]), common)
 		}
 	}
 }
