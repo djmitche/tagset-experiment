@@ -19,7 +19,7 @@
 # Next Steps
 
 * [DONE] I need to make a Serialize() method.
-* [DONE-ISH] Tag interning, ideally avoiding locking.  thread-local storage would be super nice here (so, an intern DB per thread), but isn't available in Go.  Tags come with a cardinality level, so it may make sense to heavily intern the low-cardinality tags and lightly intern the high-cardinality tags.
+* [DONE] Tag interning, ideally avoiding locking.  thread-local storage would be super nice here (so, an intern DB per thread), but isn't available in Go.  Tags come with a cardinality level, so it may make sense to heavily intern the low-cardinality tags and lightly intern the high-cardinality tags.
 * Build a tag-slice allocator around sync.Pool that can avoid all those make(..) calls in tagset.go
 * Build a tagset allocator that re-uses storage for TagSet instances when they are parsed, and recognizes repeated unions of the same tagsets
 * For Hash and Serialization, does Go inline the function well enough, or should I change that to a public property and warn people not to change it?
@@ -28,10 +28,11 @@
 * Would it help to try to build a slab allocator for tags, allocating (say) 4k of bytes at a time and building []byte slices of that?
 * [DONE] Use []byte to avoid ambiguity of copying strings, allow byte buffers ← byte buffers in DSD are reused
 * [DONE] Weak ref map? ← no such thing
-* Can we assume no hash collisions? ← yes, at 128 bits
+* [DONE] Can we assume no hash collisions? ← yes, at 128 bits
 * Avoid making all of this threadsafe by defining a "Universe" that contains all of the otherwise-global caches, and restricting a universe to a single goroutine at any one time (sort of like a TagBuilder, but longer-lived)
-* Use 2-choice hashing with the H and L hashes, and give up and don't cache when both slots are full (very unlikely failsafe)
-* Rename Tag to Ident or something, and use it to intern hostnames and metrics as well
+* [DONE] Use 2-choice hashing with the H and L hashes, and give up and don't cache when both slots are full (very unlikely failsafe)
+* [DONE] Rename Tag to Ident or something, and use it to intern hostnames and metrics as well
+* `ident.RevolvingFoundry` might be able to self-tune?
 
 Setting language aside, given:
 
