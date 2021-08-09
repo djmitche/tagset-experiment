@@ -31,6 +31,7 @@
 * Can we assume no hash collisions? ← yes, at 128 bits
 * Avoid making all of this threadsafe by defining a "Universe" that contains all of the otherwise-global caches, and restricting a universe to a single goroutine at any one time (sort of like a TagBuilder, but longer-lived)
 * Use 2-choice hashing with the H and L hashes, and give up and don't cache when both slots are full (very unlikely failsafe)
+* Rename Tag to Ident or something, and use it to intern hostnames and metrics as well
 
 Setting language aside, given:
 
