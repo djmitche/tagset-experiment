@@ -3,7 +3,7 @@ package tagset
 import (
 	"bytes"
 
-	"github.com/djmitche/tagset/tag"
+	"github.com/djmitche/tagset/ident"
 )
 
 // (used in parsing)
@@ -25,7 +25,7 @@ var emptyTagSet = &TagSet{
 type TagSet struct {
 	// tags contains a duplicate-free list of the tags in this set.  This
 	// is not necessarily sorted!
-	tags []tag.Tag
+	tags []ident.Ident
 
 	// parents are tagsets that are disjoint from each other and from this
 	// struct's tags
@@ -44,7 +44,7 @@ type TagSet struct {
 // The caller MUST ensure that the set of tags contains no duplicates.  The
 // slice of tags is retained in the tagset and MUST not be modified after
 // passing it to this function.
-func NewWithoutDuplicates(tags []tag.Tag) *TagSet {
+func NewWithoutDuplicates(tags []ident.Ident) *TagSet {
 	var hashH, hashL uint64
 	serialization := make([]byte, 0, len(tags)*avgTagSize)
 
@@ -69,11 +69,11 @@ func NewWithoutDuplicates(tags []tag.Tag) *TagSet {
 //
 // The slice is not retained, and the caller may re-use it after passing it to
 // this function.
-func New(tags []tag.Tag) *TagSet {
+func New(tags []ident.Ident) *TagSet {
 	seen := map[uint64]struct{}{}
 	var hashH, hashL uint64
 	serialization := make([]byte, 0, len(tags)*avgTagSize)
-	nondup := make([]tag.Tag, 0, len(tags))
+	nondup := make([]ident.Ident, 0, len(tags))
 	for _, t := range tags {
 		hh := t.HashH()
 		hl := t.HashL()
@@ -100,7 +100,7 @@ func New(tags []tag.Tag) *TagSet {
 
 // Parse generates a TagSet from a buffer containing comma-separated tags.  It
 // detects duplicate tags propery while parsing.
-func Parse(rawTags []byte) *TagSet {
+func Parse(foundry ident.Foundry, rawTags []byte) *TagSet {
 	// TODO: cache TagSets based on the input
 
 	if len(rawTags) == 0 {
@@ -108,17 +108,17 @@ func Parse(rawTags []byte) *TagSet {
 	}
 
 	tagsCount := bytes.Count(rawTags, commaSeparator) + 1
-	tags := make([]tag.Tag, tagsCount)
+	tags := make([]ident.Ident, tagsCount)
 
 	for i := 0; i < tagsCount-1; i++ {
 		tagPos := bytes.Index(rawTags, commaSeparator)
 		if tagPos < 0 {
 			break
 		}
-		tags[i] = tag.NewFromBytes(rawTags[:tagPos])
+		tags[i] = foundry.Ident(rawTags[:tagPos])
 		rawTags = rawTags[tagPos+len(commaSeparator):]
 	}
-	tags[tagsCount-1] = tag.NewFromBytes(rawTags)
+	tags[tagsCount-1] = foundry.Ident(rawTags)
 
 	// TODO: check for duplicates while parsing and use New or NewWithoutDuplicates
 	return New(tags)
@@ -142,14 +142,14 @@ func Union(ts1 *TagSet, ts2 *TagSet) *TagSet {
 		t1len, t2len = t2len, t1len
 	}
 
-	clone := make([]tag.Tag, 0, t2len)
+	clone := make([]ident.Ident, 0, t2len)
 	hashH := ts1.hashH
 	hashL := ts1.hashL
 	serialization := make([]byte, 0, len(ts1.serialization)+len(ts2.tags)*avgTagSize)
 	serialization = append(serialization, ts1.serialization...)
 
 	// insert non-duplicate tags from ts2, updating the hash
-	ts2.forEach(func(t tag.Tag) {
+	ts2.forEach(func(t ident.Ident) {
 		if !ts1.has(t) {
 			clone = append(clone, t)
 			if len(serialization) > 0 {
@@ -212,12 +212,12 @@ func (ts *TagSet) Serialization() []byte {
 }
 
 // has determines whether a tagset contains the given tag
-func (ts *TagSet) has(t tag.Tag) bool {
+func (ts *TagSet) has(t ident.Ident) bool {
 	// TODO: this could be much, much faster!  Maybe build a set on
 	// each TagSet as required (with sync.Once)?
 
 	for _, t2 := range ts.tags {
-		if t2.Equals(&t) {
+		if t2.Equals(t) {
 			return true
 		}
 	}
@@ -232,7 +232,7 @@ func (ts *TagSet) has(t tag.Tag) bool {
 }
 
 // forEach calls the given function once for each tag in the TagSet
-func (ts *TagSet) forEach(f func(tag.Tag)) {
+func (ts *TagSet) forEach(f func(ident.Ident)) {
 	for _, t := range ts.tags {
 		f(t)
 	}

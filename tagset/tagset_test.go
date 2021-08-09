@@ -5,10 +5,12 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/djmitche/tagset/tag"
+	"github.com/djmitche/tagset/ident"
 	"github.com/stretchr/testify/assert"
 	"github.com/twmb/murmur3"
 )
+
+var foundry = ident.NewInternFoundry()
 
 func hashOf(tags ...string) (uint64, uint64) {
 	var hh, hl uint64
@@ -21,8 +23,8 @@ func hashOf(tags ...string) (uint64, uint64) {
 }
 
 func TestSingleTagHash(t *testing.T) {
-	tg := tag.New("x:abc")
-	ts := NewWithoutDuplicates([]tag.Tag{tg})
+	tg := foundry.Ident([]byte("x:abc"))
+	ts := NewWithoutDuplicates([]ident.Ident{tg})
 	expH, expL := hashOf("x:abc")
 	gotH, gotL := ts.Hash()
 	assert.Equal(t, expH, gotH)
@@ -30,14 +32,14 @@ func TestSingleTagHash(t *testing.T) {
 }
 
 func TestParseEmpty(t *testing.T) {
-	ts := Parse([]byte{})
+	ts := Parse(foundry, []byte{})
 	assert.Equal(t, uint64(0), ts.HashL())
 	assert.Equal(t, uint64(0), ts.HashH())
 	assert.Equal(t, []byte{}, ts.Serialization())
 }
 
 func TestParseSingle(t *testing.T) {
-	ts := Parse([]byte("abc:def"))
+	ts := Parse(foundry, []byte("abc:def"))
 	expH, expL := hashOf("abc:def")
 	gotH, gotL := ts.Hash()
 	assert.Equal(t, expH, gotH)
@@ -46,7 +48,7 @@ func TestParseSingle(t *testing.T) {
 }
 
 func TestParseMulti(t *testing.T) {
-	ts := Parse([]byte("a,b,c"))
+	ts := Parse(foundry, []byte("a,b,c"))
 	expH, expL := hashOf("a", "b", "c")
 	gotH, gotL := ts.Hash()
 	assert.Equal(t, expH, gotH)
@@ -57,7 +59,7 @@ func TestParseMulti(t *testing.T) {
 }
 
 func TestParseMultiDupes(t *testing.T) {
-	ts := Parse([]byte("a,b,a,b,c,c"))
+	ts := Parse(foundry, []byte("a,b,a,b,c,c"))
 	expH, expL := hashOf("a", "b", "c")
 	gotH, gotL := ts.Hash()
 	assert.Equal(t, expH, gotH)
@@ -68,9 +70,9 @@ func TestParseMultiDupes(t *testing.T) {
 }
 
 func TestFromBytes(t *testing.T) {
-	tg1 := tag.New("x:abc")
-	tg2 := tag.NewFromBytes([]byte("y:def"))
-	ts := NewWithoutDuplicates([]tag.Tag{tg1, tg2})
+	tg1 := foundry.Ident([]byte("x:abc"))
+	tg2 := foundry.Ident([]byte("y:def"))
+	ts := NewWithoutDuplicates([]ident.Ident{tg1, tg2})
 	expH, expL := hashOf("x:abc", "y:def")
 	gotH, gotL := ts.Hash()
 	assert.Equal(t, expH, gotH)
@@ -78,28 +80,28 @@ func TestFromBytes(t *testing.T) {
 }
 
 func TestTwoTagHash(t *testing.T) {
-	tg1 := tag.New("x:abc")
-	tg2 := tag.New("y:def")
+	tg1 := foundry.Ident([]byte("x:abc"))
+	tg2 := foundry.Ident([]byte("y:def"))
 
 	expH, expL := hashOf("x:abc", "y:def")
 
 	// hash should be the same regardless of order
-	ts12 := NewWithoutDuplicates([]tag.Tag{tg1, tg2})
+	ts12 := NewWithoutDuplicates([]ident.Ident{tg1, tg2})
 	got12H, got12L := ts12.Hash()
 	assert.Equal(t, expH, got12H)
 	assert.Equal(t, expL, got12L)
 
-	ts21 := NewWithoutDuplicates([]tag.Tag{tg2, tg1})
+	ts21 := NewWithoutDuplicates([]ident.Ident{tg2, tg1})
 	got21H, got21L := ts21.Hash()
 	assert.Equal(t, expH, got21H)
 	assert.Equal(t, expL, got21L)
 }
 
 func TestSimpleDisjointUnions(t *testing.T) {
-	tg1 := tag.New("w:mno")
-	ts1 := NewWithoutDuplicates([]tag.Tag{tg1})
-	tg2 := tag.New("x:abc")
-	ts2 := NewWithoutDuplicates([]tag.Tag{tg2})
+	tg1 := foundry.Ident([]byte("w:mno"))
+	ts1 := NewWithoutDuplicates([]ident.Ident{tg1})
+	tg2 := foundry.Ident([]byte("x:abc"))
+	ts2 := NewWithoutDuplicates([]ident.Ident{tg2})
 
 	expH, expL := hashOf("w:mno", "x:abc")
 
@@ -113,13 +115,13 @@ func TestSimpleDisjointUnions(t *testing.T) {
 func TestDisjointUnions(t *testing.T) {
 	test := func(union func(t1 *TagSet, t2 *TagSet) *TagSet) func(*testing.T) {
 		return func(t *testing.T) {
-			tg1 := tag.New("w:mno")
-			ts1 := NewWithoutDuplicates([]tag.Tag{tg1})
-			tg2 := tag.New("x:abc")
-			ts2 := NewWithoutDuplicates([]tag.Tag{tg2})
-			tg3 := tag.New("y:def")
-			tg4 := tag.New("z:jkl")
-			ts3 := NewWithoutDuplicates([]tag.Tag{tg3, tg4})
+			tg1 := foundry.Ident([]byte("w:mno"))
+			ts1 := NewWithoutDuplicates([]ident.Ident{tg1})
+			tg2 := foundry.Ident([]byte("x:abc"))
+			ts2 := NewWithoutDuplicates([]ident.Ident{tg2})
+			tg3 := foundry.Ident([]byte("y:def"))
+			tg4 := foundry.Ident([]byte("z:jkl"))
+			ts3 := NewWithoutDuplicates([]ident.Ident{tg3, tg4})
 
 			expH, expL := hashOf("w:mno", "x:abc", "y:def", "z:jkl")
 
@@ -151,9 +153,9 @@ func chooseSubslice(r *rand.Rand, vals []byte) []byte {
 }
 
 func bytesToTagSet(bytes []byte) *TagSet {
-	tags := []tag.Tag{}
+	tags := []ident.Ident{}
 	for _, b := range bytes {
-		tags = append(tags, tag.NewFromBytes([]byte{b}))
+		tags = append(tags, foundry.Ident([]byte{b}))
 	}
 	return New(tags)
 }

@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/djmitche/tagset/tag"
+	"github.com/djmitche/tagset/ident"
 	"github.com/djmitche/tagset/tagset"
 )
 
@@ -76,12 +76,13 @@ func init() {
 }
 
 func benchmarkParsing(size int, b *testing.B) {
-	global := tagset.NewWithoutDuplicates([]tag.Tag{tag.New("planet:earth"), tag.New("epoch:holocene")})
+	foundry := ident.NewInternFoundry()
+	global := tagset.NewWithoutDuplicates([]ident.Ident{foundry.Ident([]byte("planet:earth")), foundry.Ident([]byte("epoch:holocene"))})
 	inc := len(data) / size
 	for i := 0; i < b.N; i++ {
-		common := tagset.DisjointUnion(global, tagset.NewWithoutDuplicates([]tag.Tag{tag.New("host:i-1029812")}))
+		common := tagset.DisjointUnion(global, tagset.NewWithoutDuplicates([]ident.Ident{foundry.Ident([]byte(("host:i-1029812")))}))
 		for j := 0; j < len(data); j += inc {
-			tagset.Union(tagset.Parse(data[i]), common)
+			tagset.Union(tagset.Parse(foundry, data[i]), common)
 		}
 	}
 }
