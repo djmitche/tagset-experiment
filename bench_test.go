@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"testing"
 
@@ -79,47 +80,45 @@ func init() {
 // global places for benchmarks to write, to avoid optimization
 var HashH uint64
 var HashL uint64
-var bySize = map[int]loadgen.TagLineGenerator{}
 
-func getTLG(size int) loadgen.TagLineGenerator {
-	if cached, ok := bySize[size]; ok {
-		return cached
+// Benchmark the tag-line generator to get a baseline over which the
+// parsing can be measured
+func BenchmarkGenerator(b *testing.B) {
+	tlg := loadgen.NewCmdTagLineGenerator("loadgen-dsd", b.N)
+	lines := tlg.GetLines()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for _ = range lines {
 	}
-
-	tlg := loadgen.DSDTagLineGenerator()
-
-	// lastly, create a preflight generator and preflight it so that
-	// we do not measure tag-line generation time
-	pf := loadgen.NewPreflightTagLineGenerator(size, tlg)
-	pf.Preflight()
-
-	bySize[size] = pf
-	return pf
 }
 
-func benchmarkParsing(size int, b *testing.B) {
-	tlg := getTLG(size)
+func BenchmarkParsing(b *testing.B) {
+	tlg := loadgen.NewCmdTagLineGenerator("loadgen-dsd", b.N)
+	lines := tlg.GetLines()
 	hostnames := loadgen.NewHostnameTagGenerator().GetTags()
 	foundry := ident.NewInternFoundry()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 
 	global := tagset.NewWithoutDuplicates([]ident.Ident{
 		foundry.Ident([]byte("region:antarctic")),
 		foundry.Ident([]byte("epoch:holocene")),
 	})
-	for i := 0; i < b.N; i++ {
-		common := tagset.DisjointUnion(global, tagset.NewWithoutDuplicates([]ident.Ident{
-			foundry.Ident(<-hostnames),
-		}))
-		for line := range tlg.GetLines() {
+	_ = tagset.DisjointUnion(global, tagset.NewWithoutDuplicates([]ident.Ident{
+		foundry.Ident(<-hostnames),
+	}))
+	count := 0
+	for _ = range lines {
+		/*
 			ts := tagset.Union(tagset.Parse(foundry, line), common)
 			HashH ^= ts.HashH()
 			HashL ^= ts.HashL()
-		}
-	}
-}
+		*/
+		count++
 
-func BenchmarkParsing1000(b *testing.B)   { benchmarkParsing(1000, b) }
-func BenchmarkParsing10000(b *testing.B)  { benchmarkParsing(10000, b) }
-func BenchmarkParsing100000(b *testing.B) { benchmarkParsing(100000, b) }
+	}
+	log.Printf("N %d count %d", b.N, count)
+}

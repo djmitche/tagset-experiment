@@ -1,9 +1,11 @@
 package loadgen
 
 import (
+	"bufio"
 	"bytes"
-	"log"
+	"io"
 	"math/rand"
+	"os/exec"
 )
 
 // ---
@@ -40,7 +42,6 @@ func NewPreflightTagLineGenerator(n int, inner TagLineGenerator) *PreflightTagLi
 // Preflight generates and caches the output from the wrapped generator.
 func (g *PreflightTagLineGenerator) Preflight() {
 	if len(g.lines) == 0 {
-		log.Printf("Pre-flighting %d tag lines", g.n)
 		i := 0
 		for l := range g.inner.GetLines() {
 			i++
@@ -49,7 +50,6 @@ func (g *PreflightTagLineGenerator) Preflight() {
 			}
 			g.lines = append(g.lines, l)
 		}
-		log.Printf("preflight complete")
 	}
 }
 
@@ -64,6 +64,100 @@ func (g *PreflightTagLineGenerator) GetLines() chan ([]byte) {
 		}
 		close(c)
 	}()
+
+	return c
+}
+
+// CmdTagLineGenerator runs a subcommand and provides each line it outputs as a
+// tag line.  This allows offloading tagline generation to another process,
+// allowing benchmarks to focus on allocation and performance only of the
+// consumption functionality.
+type CmdTagLineGenerator struct {
+	name string
+	n    int
+}
+
+// NewCmdTagLineGenerator creates a generator that will return `n` lines
+// from the named command in `loadgen/cmd`.
+func NewCmdTagLineGenerator(name string, n int) *CmdTagLineGenerator {
+	return &CmdTagLineGenerator{name, n}
+}
+
+func (g *CmdTagLineGenerator) GetLines() chan ([]byte) {
+	reader, writer := io.Pipe()
+	gobin, err := exec.LookPath("go")
+	cmd := exec.Cmd{
+		Path: gobin,
+		// TODO: assumes running from the root of this project
+		Args:   []string{"go", "run", "./loadgen/cmd/" + g.name + ".go"},
+		Stdout: writer,
+	}
+	err = cmd.Start()
+	if err != nil {
+		panic(err)
+	}
+
+	scanner := bufio.NewScanner(reader)
+
+	// we reuse buffers after they are likely to have been consumed, by keeping
+	// more buffers than there are slots in the channel
+	const bufsize = 512
+	bufs := make([][]byte, 0, bufsize)
+	bufidx := 0
+	c := make(chan ([]byte), bufsize-5)
+
+	for i := 0; i < bufsize; i++ {
+		bufs = append(bufs, make([]byte, 0, 256))
+	}
+
+	ready := make(chan (struct{}))
+
+	go func() {
+		loop := func(n int) {
+			i := 0
+			for scanner.Scan() {
+				if i >= n {
+					break
+				}
+				line := scanner.Bytes()
+
+				// make a local copy, since scanner will overwrite its buffer
+				buf := bufs[bufidx%bufsize]
+				bufidx++
+				buf = buf[:len(line)]
+				copy(buf, line)
+
+				c <- buf
+
+				i++
+			}
+		}
+
+		prefill := bufsize / 2
+		if prefill > g.n {
+			prefill = g.n
+		}
+
+		// fill the buffer halfway before signalling that we are ready; this allows
+		// time for the process to start, and ensures we're not struggling to fill the
+		// buffer for the first few lines.
+		loop(prefill)
+
+		// signal readiness
+		close(ready)
+
+		// finish up the g.n lines
+		loop(g.n - prefill)
+
+		// and signal the end of the lines
+		close(c)
+
+		// try to kill the command if it's not already killed
+		_ = cmd.Process.Kill()
+	}()
+
+	// wait until the goroutine says it's ready before returning the channel
+	<-ready
 
 	return c
 }
