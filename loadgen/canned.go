@@ -2,6 +2,9 @@ package loadgen
 
 // DSDTagLineGenerator creates a tag-line generator that generates
 // output similar to what a typical DSD client might send.
+//
+// As that is known right now, that means about 1000 different tag sets
+// repeated very frequently.
 func DSDTagLineGenerator() TagLineGenerator {
 	// almost every line has an environment
 	envs := NewLowCardinalityTagGenerator([][]byte{
@@ -28,28 +31,21 @@ func DSDTagLineGenerator() TagLineGenerator {
 		[]byte("shard:z"),
 	})
 
-	var lowcard TagLineGenerator = NewRandomTagLineGenerator([]RandomTagLineOptions{{
+	var lines TagLineGenerator = NewRandomTagLineGenerator([]RandomTagLineOptions{{
 		tg:      envs,
 		prob:    99,
 		repeats: 1,
 	}, {
 		tg:      tags,
 		prob:    25,
-		repeats: 3,
+		repeats: 5,
+	}, {
+		tg:      NewHighCardinalityTagGenerator("device", 100),
+		prob:    90,
+		repeats: 2,
 	}})
 
 	// duplicate those, with an active set of 100 tag lines each
-	// repeated up to 20 times
-	lowcard = NewDuplicateTagLineGenerator(lowcard, 100, 20)
-
-	spans := NewRandomTagLineGenerator([]RandomTagLineOptions{{
-		tg:      envs,
-		prob:    99,
-		repeats: 1,
-	}})
-
-	return NewMultiplexingTagLineGenerator([]TagLineGenerator{
-		lowcard,
-		spans,
-	})
+	// repeated up to 1000 times
+	return NewDuplicateTagLineGenerator(lines, 1000, 1000)
 }
