@@ -1,8 +1,8 @@
 package loadgen
 
 import (
+	"bufio"
 	"bytes"
-	"fmt"
 	"io"
 	"math/rand"
 	"os/exec"
@@ -97,82 +97,47 @@ func (g *CmdTagLineGenerator) GetLines() chan ([]byte) {
 		panic(err)
 	}
 
+	scanner := bufio.NewScanner(reader)
+
 	// we reuse buffers after they are likely to have been consumed, by keeping
-	// more buffers than there are slots in the channel.  "Likely" in this case
-	// assumes that the channel consumer is operating on one buffer at a time.
-	const numbufs = 128
-	const bufsize = 4096 * 1024
-	const chansize = 512
+	// more buffers than there are slots in the channel
+	const bufsize = 512
+	const numbufs = 512
+	const chansize = 500 // must be < numbufs
 	bufs := make([][]byte, 0, numbufs)
 	bufidx := 0
-	bufoffset := 0
-	bufpartial := 0
 
 	for i := 0; i < numbufs; i++ {
-		bufs = append(bufs, make([]byte, bufsize, bufsize))
+		bufs = append(bufs, make([]byte, 0, bufsize))
 	}
-
 	c := make(chan ([]byte), chansize)
 
 	ready := make(chan (struct{}))
 
-	// NOTE: bufio.Scanner proved far too slow for this at ~450ns/line
-
 	go func() {
 		loop := func(n int) {
-			if n <= 0 {
-				return
-			}
-
-			count := 0
-		Outer:
-			for {
-				buf := bufs[bufidx]
-
-				// fill up buf from the reader
-				got, err := reader.Read(buf[bufpartial:])
-				bufpartial += got
-
-				// parse out any lines from that buffer and send them
-				for {
-					nl := bytes.IndexByte(buf[bufoffset:bufpartial], '\n')
-					if nl < 0 {
-						break
-					}
-
-					c <- buf[bufoffset : bufoffset+nl]
-					bufoffset += nl + 1
-
-					count++
-					if count >= n {
-						break Outer
-					}
-				}
-
-				// move on to the next buffer if we've read to the end of this one
-				if bufpartial == len(buf) {
-
-					// if we found no lines in this buffer, then this won't help!
-					if bufoffset == 0 {
-						panic(fmt.Sprintf("line too long: %s", buf))
-					}
-
-					bufidx = (bufidx + 1) % numbufs
-					copy(bufs[bufidx], buf[bufoffset:bufpartial])
-					bufpartial -= bufoffset
-					bufoffset = 0
-				}
-
-				// end on Read error, assuming it's EOF
-				if err != nil {
+			i := 0
+			for scanner.Scan() {
+				if i >= n {
 					break
 				}
+				line := scanner.Bytes()
+
+				// make a local copy, since scanner will overwrite its buffer
+				buf := bufs[bufidx%numbufs]
+				bufidx++
+				buf = buf[:len(line)]
+				copy(buf, line)
+
+				c <- buf
+
+				i++
 			}
 		}
 
 		prefill := chansize / 2
 		if prefill > g.n {
-			prefill = g.n / 2
+			prefill = g.n
 		}
 
 		// fill the buffer halfway before signalling that we are ready; this allows
