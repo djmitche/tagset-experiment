@@ -57,7 +57,8 @@ func BenchmarkGenerator(b *testing.B) {
 func BenchmarkParsing(b *testing.B) {
 	tlg := loadgen.NewCmdTagLineGenerator("dsd", b.N)
 	lines := tlg.GetLines()
-	foundry := ident.NewInternFoundry()
+	idFoundry := ident.NewInternFoundry()
+	tsFoundry := tagset.NewNullFoundry()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -78,7 +79,7 @@ func BenchmarkParsing(b *testing.B) {
 
 		count++
 
-		ts := tagset.Parse(foundry, line)
+		ts := tsFoundry.Parse(idFoundry, line)
 		HashH ^= ts.HashH()
 		HashL ^= ts.HashL()
 	}
