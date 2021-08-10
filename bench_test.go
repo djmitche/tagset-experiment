@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 	"testing"
 
@@ -80,6 +79,7 @@ func init() {
 // global places for benchmarks to write, to avoid optimization
 var HashH uint64
 var HashL uint64
+var Line []byte
 
 // Benchmark the tag-line generator to get a baseline over which the
 // parsing can be measured
@@ -90,7 +90,8 @@ func BenchmarkGenerator(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for _ = range lines {
+	for line := range lines {
+		Line = line
 	}
 }
 
@@ -107,18 +108,13 @@ func BenchmarkParsing(b *testing.B) {
 		foundry.Ident([]byte("region:antarctic")),
 		foundry.Ident([]byte("epoch:holocene")),
 	})
-	_ = tagset.DisjointUnion(global, tagset.NewWithoutDuplicates([]ident.Ident{
+	common := tagset.DisjointUnion(global, tagset.NewWithoutDuplicates([]ident.Ident{
 		foundry.Ident(<-hostnames),
 	}))
-	count := 0
-	for _ = range lines {
-		/*
-			ts := tagset.Union(tagset.Parse(foundry, line), common)
-			HashH ^= ts.HashH()
-			HashL ^= ts.HashL()
-		*/
-		count++
+	for line := range lines {
+		ts := tagset.Union(tagset.Parse(foundry, line), common)
+		HashH ^= ts.HashH()
+		HashL ^= ts.HashL()
 
 	}
-	log.Printf("N %d count %d", b.N, count)
 }
