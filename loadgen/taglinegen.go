@@ -80,11 +80,6 @@ type CmdTagLineGenerator struct {
 // NewCmdTagLineGenerator creates a generator that will return `n` lines
 // from the named command in `loadgen/cmd`.
 func NewCmdTagLineGenerator(name string, n int) *CmdTagLineGenerator {
-	// apply a sane minimum size
-	if n < 10 {
-		n = 10
-	}
-
 	return &CmdTagLineGenerator{name, n}
 }
 
@@ -93,8 +88,8 @@ func (g *CmdTagLineGenerator) GetLines() chan ([]byte) {
 	gobin, err := exec.LookPath("go")
 	cmd := exec.Cmd{
 		Path: gobin,
-		// TODO: assumes running from the root of this project
-		Args:   []string{"go", "run", "./loadgen/cmd/" + g.name + ".go"},
+		// TODO: assumes this is running from the root of this project
+		Args:   []string{"go", "run", "./loadgen/cmd/" + g.name},
 		Stdout: writer,
 	}
 	err = cmd.Start()
@@ -105,17 +100,19 @@ func (g *CmdTagLineGenerator) GetLines() chan ([]byte) {
 	// we reuse buffers after they are likely to have been consumed, by keeping
 	// more buffers than there are slots in the channel.  "Likely" in this case
 	// assumes that the channel consumer is operating on one buffer at a time.
-	const bufsize = 512
-	bufs := make([][]byte, 0, bufsize)
+	const numbufs = 128
+	const bufsize = 4096 * 1024
+	const chansize = 512
+	bufs := make([][]byte, 0, numbufs)
 	bufidx := 0
 	bufoffset := 0
 	bufpartial := 0
 
-	for i := 0; i < bufsize; i++ {
-		bufs = append(bufs, make([]byte, 4096, 4096))
+	for i := 0; i < numbufs; i++ {
+		bufs = append(bufs, make([]byte, bufsize, bufsize))
 	}
 
-	c := make(chan ([]byte), bufsize-5)
+	c := make(chan ([]byte), chansize)
 
 	ready := make(chan (struct{}))
 
@@ -160,7 +157,7 @@ func (g *CmdTagLineGenerator) GetLines() chan ([]byte) {
 						panic(fmt.Sprintf("line too long: %s", buf))
 					}
 
-					bufidx = (bufidx + 1) % bufsize
+					bufidx = (bufidx + 1) % numbufs
 					copy(bufs[bufidx], buf[bufoffset:bufpartial])
 					bufpartial -= bufoffset
 					bufoffset = 0
@@ -173,7 +170,7 @@ func (g *CmdTagLineGenerator) GetLines() chan ([]byte) {
 			}
 		}
 
-		prefill := bufsize / 2
+		prefill := chansize / 2
 		if prefill > g.n {
 			prefill = g.n / 2
 		}

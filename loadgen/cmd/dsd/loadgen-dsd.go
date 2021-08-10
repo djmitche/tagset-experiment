@@ -7,7 +7,8 @@ import (
 	"github.com/djmitche/tagset/loadgen"
 )
 
-// On a macbook, this is capable of about 2 million lines / second
+// This producer simulates input from DogStatsD.  On a macbook, this is
+// capable of about 2 million lines / second, or about 500ns per line.
 
 func main() {
 	tlg := loadgen.DSDTagLineGenerator()
