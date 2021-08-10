@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/djmitche/tagset/ident"
+	"github.com/djmitche/tagset/loadgen"
 	"github.com/djmitche/tagset/tagset"
 )
 
@@ -78,71 +79,19 @@ func init() {
 // global places for benchmarks to write, to avoid optimization
 var HashH uint64
 var HashL uint64
-var bySize = map[int]tagLineGenerator{}
+var bySize = map[int]loadgen.TagLineGenerator{}
 
-func getTLG(size int) tagLineGenerator {
+func getTLG(size int) loadgen.TagLineGenerator {
 	if cached, ok := bySize[size]; ok {
 		return cached
 	}
 
-	// almost every line has an environment
-	envs := newLowCardinalityTagGenerator([][]byte{
-		[]byte("env:staging"),
-		[]byte("env:prod"),
-		[]byte("env:dev"),
-		[]byte("env:qa"),
-		[]byte("env:lab"),
-		[]byte("env:bench"),
-		[]byte("env:rainforest"),
-	})
-
-	// some random tags that might or might not appear on a tag line
-	tags := newLowCardinalityTagGenerator([][]byte{
-		[]byte("library:snorkels"),
-		[]byte("library:bunny"),
-		[]byte("library:bananas"),
-		[]byte("library:pamplemousse"),
-		[]byte("abtest:123"),
-		[]byte("abtest:992"),
-		[]byte("abtest:16"),
-		[]byte("shard:x"),
-		[]byte("shard:y"),
-		[]byte("shard:z"),
-	})
-
-	var lowcard tagLineGenerator = newRandomTagLineGenerator([]randomTagLineOptions{{
-		tg:      envs,
-		prob:    99,
-		repeats: 1,
-	}, {
-		tg:      tags,
-		prob:    25,
-		repeats: 3,
-	}})
-
-	// duplicate those, with an active set of 100 tag lines each
-	// repeated up to 20 times
-	lowcard = newDuplicateTagLineGenerator(lowcard, 100, 20)
-
-	spans := newRandomTagLineGenerator([]randomTagLineOptions{{
-		tg:      envs,
-		prob:    99,
-		repeats: 1,
-	}, {
-		tg:      newHighCardinalityTagGenerator("span", size/10),
-		prob:    80,
-		repeats: 1,
-	}})
-
-	var tlg tagLineGenerator = newMultiplexingTagLineGenerator([]tagLineGenerator{
-		lowcard,
-		spans,
-	})
+	tlg := loadgen.DSDTagLineGenerator()
 
 	// lastly, create a preflight generator and preflight it so that
 	// we do not measure tag-line generation time
-	pf := newPreflightTagLineGenerator(size, tlg)
-	pf.preflight()
+	pf := loadgen.NewPreflightTagLineGenerator(size, tlg)
+	pf.Preflight()
 
 	bySize[size] = pf
 	return pf
@@ -150,7 +99,7 @@ func getTLG(size int) tagLineGenerator {
 
 func benchmarkParsing(size int, b *testing.B) {
 	tlg := getTLG(size)
-	hostnames := newHostnameTagGenerator().getTags()
+	hostnames := loadgen.NewHostnameTagGenerator().GetTags()
 	foundry := ident.NewInternFoundry()
 
 	b.ResetTimer()
@@ -163,7 +112,7 @@ func benchmarkParsing(size int, b *testing.B) {
 		common := tagset.DisjointUnion(global, tagset.NewWithoutDuplicates([]ident.Ident{
 			foundry.Ident(<-hostnames),
 		}))
-		for line := range tlg.getLines() {
+		for line := range tlg.GetLines() {
 			ts := tagset.Union(tagset.Parse(foundry, line), common)
 			HashH ^= ts.HashH()
 			HashL ^= ts.HashL()
