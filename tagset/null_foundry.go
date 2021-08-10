@@ -21,16 +21,45 @@ func NewNullFoundry() *NullFoundry {
 	return &NullFoundry{}
 }
 
+// A seenTracker can be used to track seeing things by their 128-bit hashes
+type seenTracker map[uint64][]uint64
+
+// Track the given identifier as seen and return true if it had been seen
+// before.
+func (seen seenTracker) seen(hashH, hashL uint64) bool {
+	// the map uses the high uint64 as a hash table index, with a linear search
+	// used to find the low uint64 in the bucket.  Almost every bucket will be
+	// one item long.  NOTE: test the bucketing by stripping bits from `hashH`
+	// with `hashH &= 0x7`.
+
+	hashBucket, found := seen[hashH]
+	if found {
+		found = false
+		for _, existingL := range hashBucket {
+			if existingL == hashL {
+				found = true
+				break
+			}
+		}
+	} else {
+		hashBucket = []uint64{}
+	}
+	if !found {
+		seen[hashH] = append(hashBucket, hashL)
+	}
+
+	return found
+}
+
 func (f *NullFoundry) NewWithDuplicates(tags []ident.Ident) *TagSet {
-	seen := map[uint64]struct{}{}
+	seen := seenTracker{}
 	var hashH, hashL uint64
 	serialization := make([]byte, 0, len(tags)*avgTagSize)
 	nondup := make([]ident.Ident, 0, len(tags))
 	for _, t := range tags {
 		hh := t.HashH()
 		hl := t.HashL()
-		_, found := seen[hh] // TODO: handle hash collision
-		if !found {
+		if !seen.seen(hh, hl) {
 			nondup = append(nondup, t)
 			if len(serialization) > 0 {
 				serialization = append(serialization, ',')
@@ -38,7 +67,6 @@ func (f *NullFoundry) NewWithDuplicates(tags []ident.Ident) *TagSet {
 			serialization = append(serialization, t.Bytes()...)
 			hashH ^= hh
 			hashL ^= hl
-			seen[hh] = struct{}{}
 		}
 	}
 
@@ -89,7 +117,7 @@ func (f *NullFoundry) Parse(foundry ident.Foundry, rawTags []byte) *TagSet {
 	}
 	tags[tagsCount-1] = foundry.Ident(rawTags)
 
-	// TODO: check for duplicates while parsing and use New or NewWithoutDuplicates
+	// just assume there were duplicates in the parse..
 	return f.NewWithDuplicates(tags)
 }
 
