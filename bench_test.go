@@ -57,21 +57,10 @@ func BenchmarkGenerator(b *testing.B) {
 func BenchmarkParsing(b *testing.B) {
 	tlg := loadgen.NewCmdTagLineGenerator("dsd", b.N)
 	lines := tlg.GetLines()
-	hostnames := loadgen.NewHostnameTagGenerator().GetTags()
 	foundry := ident.NewInternFoundry()
 
 	b.ReportAllocs()
 	b.ResetTimer()
-
-	global := tagset.NewWithoutDuplicates([]ident.Ident{
-		foundry.Ident([]byte("region:antarctic")),
-		foundry.Ident([]byte("epoch:holocene")),
-	})
-
-	common := tagset.DisjointUnion(global, tagset.NewWithoutDuplicates([]ident.Ident{
-		foundry.Ident(<-hostnames),
-	}))
-	common = common
 
 	count := 0
 	almostDone := b.N * 10 / 9
