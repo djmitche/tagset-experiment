@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"testing"
 
 	"github.com/djmitche/tagset/ident"
@@ -54,11 +55,10 @@ func BenchmarkGenerator(b *testing.B) {
 	require.Equal(b, count, b.N)
 }
 
-func BenchmarkParsing(b *testing.B) {
+func benchmarkParsing(b *testing.B, tsFoundry tagset.Foundry) {
 	tlg := loadgen.NewCmdTagLineGenerator("dsd", b.N)
 	lines := tlg.GetLines()
 	idFoundry := ident.NewInternFoundry()
-	tsFoundry := tagset.NewNullFoundry()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -84,5 +84,15 @@ func BenchmarkParsing(b *testing.B) {
 		HashL ^= ts.HashL()
 	}
 
+	b.StopTimer()
+
 	require.Equal(b, count, b.N)
+}
+
+func BenchmarkNullFoundryParsing(b *testing.B) { benchmarkParsing(b, tagset.NewNullFoundry()) }
+func BenchmarkInternFoundryParsing(b *testing.B) {
+	f := tagset.NewInternFoundry()
+	benchmarkParsing(b, f)
+	log.Printf("hits: %d", f.Hits)
+	log.Printf("misses: %d", f.Misses)
 }

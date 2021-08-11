@@ -6,14 +6,14 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-type NullFoundrySuite struct {
+type InternFoundrySuite struct {
 	FoundrySuite
 }
 
-func TestNullFoundry(t *testing.T) {
-	suite.Run(t, &NullFoundrySuite{
+func TestInternFoundry(t *testing.T) {
+	suite.Run(t, &InternFoundrySuite{
 		FoundrySuite: FoundrySuite{
-			f: NewNullFoundry(),
+			f: NewInternFoundry(),
 		},
 	})
 }
