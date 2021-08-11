@@ -1,6 +1,7 @@
 package tagset
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 
@@ -14,13 +15,55 @@ func fakeTagSetWithHash(hashH, hashL uint64) *TagSet {
 	}
 }
 
-func TestTwoChoiceCollisions(t *testing.T) {
+func twoChoiceTestCount() uint64 {
 	count := uint64(hashMask)
-	if count > 10 {
+	if count > 1000 {
 		// too big to fill, so just use "some"
-		count = 10
+		count = 1000
+	} else {
+		// hold back a bit from the maximum capacity of the table
+		count = count - 10
+	}
+	return count
+}
+
+// Check that TwoChoice behaves like a regular old map
+func TestTwoChoiceWellBehaved(t *testing.T) {
+	count := twoChoiceTestCount()
+
+	tbl := newTwoChoice(int(count))
+	regularMap := map[string]*TagSet{}
+
+	for i := uint64(0); i < count; i++ {
+		h := rand.Uint64() & hashMask
+		l := rand.Uint64() & hashMask
+		k := fmt.Sprintf("%016x.%016x", h, l)
+
+		if _, found := regularMap[k]; found {
+			elt := tbl.get(h, l)
+			require.NotNil(t, elt)
+			require.Equal(t, h, elt.hashH)
+			require.Equal(t, l, elt.hashL)
+		} else {
+			require.Nil(t, tbl.get(h, l))
+		}
+
+		ts := fakeTagSetWithHash(h, l)
+		regularMap[k] = ts
+		tbl.insert(h, l, ts)
 	}
 
+	// now try to find all of those elements again..
+	for k, ts := range regularMap {
+		h := ts.hashH
+		l := ts.hashL
+		got := tbl.get(h, l)
+		require.Equal(t, ts, got, k)
+	}
+}
+
+func TestTwoChoiceCollisions(t *testing.T) {
+	count := twoChoiceTestCount()
 	tbl := newTwoChoice(int(count))
 
 	base := uint64(0x123456789)

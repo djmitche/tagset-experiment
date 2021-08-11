@@ -16,7 +16,8 @@ type InternFoundry struct {
 	// the hash of the TagSet itself.
 	byParseHash twoChoice
 
-	Hits, Misses uint64
+	// Count of parses, and misses in the byParseHash cache
+	Parses, ParseMisses uint64
 }
 
 func NewInternFoundry() *InternFoundry {
@@ -34,14 +35,14 @@ func (f *InternFoundry) NewWithoutDuplicates(tags []ident.Ident) *TagSet {
 }
 
 func (f *InternFoundry) Parse(foundry ident.Foundry, rawTags []byte) *TagSet {
+	f.Parses++
 	rawHashH, rawHashL := murmur3.Sum128(rawTags)
 	existing := f.byParseHash.get(rawHashH, rawHashL)
 	if existing != nil {
-		f.Hits++
 		return existing
 	}
 
-	f.Misses++
+	f.ParseMisses++
 	fresh := f.NullFoundry.Parse(foundry, rawTags)
 	f.byParseHash.insert(rawHashH, rawHashL, fresh)
 	return fresh

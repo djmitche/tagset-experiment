@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"sync"
 	"testing"
 
 	"github.com/djmitche/tagset/ident"
@@ -14,6 +14,9 @@ import (
 var HashH uint64
 var HashL uint64
 var Line []byte
+
+func init() {
+}
 
 // Benchmark reading from a channel
 func BenchmarkChannel(b *testing.B) {
@@ -55,16 +58,31 @@ func BenchmarkGenerator(b *testing.B) {
 	require.Equal(b, count, b.N)
 }
 
+var parsingNoteOnce sync.Once
+
 func benchmarkParsing(b *testing.B, tsFoundry tagset.Foundry) {
-	tlg := loadgen.NewCmdTagLineGenerator("dsd", b.N)
+	// operate at 1000x the benchmarks, because otherwise allocs/op rounds
+	// to the nearest integer and loses precision
+	n := 1000 * b.N
+	parsingNoteOnce.Do(func() {
+		b.Log("NOTE: for `Benchmark.*FoundryParsing`, one 'op' means parsing 1000 lines.")
+	})
+
+	const warmupCount = 1000
+	tlg := loadgen.NewCmdTagLineGenerator("dsd", n+warmupCount)
 	lines := tlg.GetLines()
 	idFoundry := ident.NewInternFoundry()
+
+	// warm up the parser first
+	for i := 0; i < warmupCount; i++ {
+		tsFoundry.Parse(idFoundry, <-lines)
+	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	count := 0
-	almostDone := b.N * 10 / 9
+	almostDone := n * 10 / 9
 	if almostDone < 1000 {
 		almostDone = 1000
 	}
@@ -86,13 +104,13 @@ func benchmarkParsing(b *testing.B, tsFoundry tagset.Foundry) {
 
 	b.StopTimer()
 
-	require.Equal(b, count, b.N)
+	require.Equal(b, count, n)
 }
 
 func BenchmarkNullFoundryParsing(b *testing.B) { benchmarkParsing(b, tagset.NewNullFoundry()) }
 func BenchmarkInternFoundryParsing(b *testing.B) {
 	f := tagset.NewInternFoundry()
 	benchmarkParsing(b, f)
-	log.Printf("hits: %d", f.Hits)
-	log.Printf("misses: %d", f.Misses)
+	// report the percent of parses that missed the cache
+	b.ReportMetric(float64(f.ParseMisses)*100/float64(f.Parses), "miss%")
 }

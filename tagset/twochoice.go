@@ -5,7 +5,12 @@ package tagset
 // hashing technique to keep lookups O(log N).  Collisions are handled with open
 // chaining on the high uint64, but are exceedingly rare.  See `hashMask` for help
 // testing this condition.
-type twoChoice map[uint64]*TagSet
+type twoChoice map[uint64]twoChoiceElt
+
+type twoChoiceElt struct {
+	hashH, hashL uint64
+	ts           *TagSet
+}
 
 // Create a new twoChoice map, optionally with a capacity.
 func newTwoChoice(capacity ...int) twoChoice {
@@ -27,24 +32,31 @@ func (tbl twoChoice) get(hashH, hashL uint64) *TagSet {
 
 	// first choice..
 	elt, foundH := tbl[hashH]
-	if foundH && (elt.HashL()&hashMask) == hashL {
-		return elt
+	if foundH && (elt.hashL&hashMask) == hashL && (elt.hashH&hashMask) == hashH {
+		return elt.ts
 	}
 
 	// second choice..
 	elt, foundL := tbl[hashL]
-	if foundL && (elt.HashH()&hashMask) == hashH {
-		return elt
+	if foundL && (elt.hashH&hashMask) == hashH && (elt.hashL&hashMask) == hashL {
+		return elt.ts
 	}
 
-	// open chaining
+	// open chaining, when the hashH element existed but hashL didn't match
 	if foundH {
+		chainH := hashH
 		for {
-			hashH = (hashH + 1) & hashMask
-			elt, found := tbl[hashH]
+			chainH = (chainH + 1) & hashMask
+			if chainH == hashH {
+				// we've scanned the full table; this would require 2**128 entries with
+				// a full-sized hashMask, so it's safe to assume it will never happen.
+				panic("twochoice table full")
+			}
+
+			elt, found := tbl[chainH]
 			if found {
-				if (elt.HashL() & hashMask) == hashL {
-					return elt
+				if (elt.hashL&hashMask) == hashL && (elt.hashH&hashMask) == hashH {
+					return elt.ts
 				}
 				continue
 			} else {
@@ -62,40 +74,40 @@ func (tbl twoChoice) insert(hashH, hashL uint64, newElt *TagSet) {
 	hashH &= hashMask
 	hashL &= hashMask
 
-	// first choice..
-	elt, found := tbl[hashH]
-	if !found || (elt.HashL()&hashMask) == hashL {
-		tbl[hashH] = newElt
+	// hash at the first choice..
+	elt, collisH := tbl[hashH]
+	if !collisH || ((elt.hashL&hashMask) == hashL && (elt.hashH&hashMask) == hashH) {
+		tbl[hashH] = twoChoiceElt{hashH: hashH, hashL: hashL, ts: newElt}
 		return
 	}
 
-	// second choice..
-	elt, found = tbl[hashL]
-	if !found || (elt.HashH()&hashMask) == hashH {
-		tbl[hashL] = newElt
+	// failing that, at the second choice..
+	elt, collisL := tbl[hashL]
+	if !collisL || ((elt.hashH&hashMask) == hashH && (elt.hashL&hashMask) == hashL) {
+		tbl[hashL] = twoChoiceElt{hashH: hashH, hashL: hashL, ts: newElt}
 		return
 	}
 
-	// open chaining
-	origHashH := hashH & hashMask
+	// if both of those collided, resort to open chaining
+	chainH := hashH
 	for {
-		hashH = (hashH + 1) & hashMask
-		if hashH == origHashH {
-			// we've scanned the full table; this would require 2**128 entries without
-			// hashmask, so it's safe to assume it will never happen.
+		chainH = (chainH + 1) & hashMask
+		if chainH == hashH {
+			// we've scanned the full table; this would require 2**128 entries with
+			// a full-sized hashMask, so it's safe to assume it will never happen.
 			panic("twochoice table full")
 		}
 
-		elt, found = tbl[hashH]
+		elt, found := tbl[chainH]
 		if found {
-			if (elt.HashL() & hashMask) == hashL {
-				tbl[hashH] = newElt
+			if (elt.hashL&hashMask) == hashL && (elt.hashH&hashMask) == hashH {
+				tbl[chainH] = twoChoiceElt{hashH: hashH, hashL: hashL, ts: newElt}
 				return
 			}
 			continue
 		} else {
 			// nothing in this slot -> not found, so put it here
-			tbl[hashH] = newElt
+			tbl[chainH] = twoChoiceElt{hashH: hashH, hashL: hashL, ts: newElt}
 			return
 		}
 	}

@@ -45,7 +45,7 @@ func DSDTagLineGenerator() TagLineGenerator {
 		repeats: 2,
 	}})
 
-	// duplicate those, with an active set of 100 tag lines each
+	// duplicate those, with an active set of 1000 tag lines each
 	// repeated up to 1000 times
 	return NewDuplicateTagLineGenerator(lines, 1000, 1000)
 }
