@@ -10,8 +10,8 @@ import (
 func TestTagsetAccessors(t *testing.T) {
 	tg := idFoundry.Ident([]byte("x:abc"))
 	ts := &TagSet{
+		size:          1,
 		tags:          []ident.Ident{tg},
-		parents:       [2]*TagSet{nil, nil},
 		hashH:         tg.HashH(),
 		hashL:         tg.HashL(),
 		serialization: []byte("x:abc"),

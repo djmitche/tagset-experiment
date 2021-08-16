@@ -15,13 +15,12 @@ var emptyTagSet = &TagSet{
 // A TagSet has a 128-bit hash, represented as two 64-bit halves.  The
 // likelihood of hash collisions is considered low enough to ignore.
 type TagSet struct {
+	// size is the total number of tags in the tagset
+	size int
+
 	// tags contains a duplicate-free list of the tags in this set.  This
 	// is not necessarily sorted!
 	tags []ident.Ident
-
-	// parents are tagsets that are disjoint from each other and from this
-	// struct's tags
-	parents [2]*TagSet
 
 	// hashH and hashL contain the hash of all tags in the set.  Hashes are
 	// computed from tag hashes in a way that is associative and commutative.
@@ -63,12 +62,6 @@ func (ts *TagSet) has(t ident.Ident) bool {
 		}
 	}
 
-	for _, p := range ts.parents {
-		if p != nil && p.has(t) {
-			return true
-		}
-	}
-
 	return false
 }
 
@@ -76,11 +69,5 @@ func (ts *TagSet) has(t ident.Ident) bool {
 func (ts *TagSet) forEach(f func(ident.Ident)) {
 	for _, t := range ts.tags {
 		f(t)
-	}
-
-	for _, p := range ts.parents {
-		if p != nil {
-			p.forEach(f)
-		}
 	}
 }
