@@ -7,8 +7,8 @@ type Foundry interface {
 	// NewWithDuplicates creates a new TagSet from a slice of tags that may
 	// contain duplicates.
 	//
-	// The slice is not retained, and the caller may re-use it after passing it
-	// to this function.
+	// The slice is modified in-place, but not retained, and the caller may
+	// re-use it after passing it to this function.
 	NewWithDuplicates(tags []ident.Ident) *TagSet
 
 	// NewWithoutDuplicates creates a new TagSet containing the given tags.

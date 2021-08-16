@@ -15,22 +15,29 @@ func NewNullFoundry() *NullFoundry {
 }
 
 func (f *NullFoundry) NewWithDuplicates(tags []ident.Ident) *TagSet {
-	seen := seenTracker{}
-	var hashH, hashL uint64
+	if len(tags) == 0 {
+		return emptyTagSet
+	}
+
+	ident.Sort(tags)
+
+	lastTag := tags[0]
 	serialization := make([]byte, 0, len(tags)*avgTagSize)
+	serialization = append(serialization, lastTag.Bytes()...)
 	nondup := make([]ident.Ident, 0, len(tags))
-	for _, t := range tags {
-		hh := t.HashH()
-		hl := t.HashL()
-		if !seen.seen(hh, hl) {
-			nondup = append(nondup, t)
-			if len(serialization) > 0 {
-				serialization = append(serialization, ',')
-			}
-			serialization = append(serialization, t.Bytes()...)
-			hashH ^= hh
-			hashL ^= hl
+	nondup = append(nondup, lastTag)
+	hashH := lastTag.HashH()
+	hashL := lastTag.HashL()
+	for _, t := range tags[1:] {
+		if t.Equals(lastTag) {
+			continue
 		}
+		nondup = append(nondup, t)
+		serialization = append(serialization, ',')
+		serialization = append(serialization, t.Bytes()...)
+		hashH ^= t.HashH()
+		hashL ^= t.HashL()
+		lastTag = t
 	}
 
 	return &TagSet{
