@@ -51,6 +51,14 @@ func (i1 Ident) Equals(i2 Ident) bool {
 	return &i1[0] == &i2[0] || i1.HashH() == i2.HashH() || i1.HashL() == i2.HashL()
 }
 
+// Less orders identifiers by their hashes.
+func (i1 Ident) Less(i2 Ident) bool {
+	if &i1[0] == &i2[0] {
+		return false
+	}
+	return i1.HashH() < i2.HashH() || (i1.HashH() == i2.HashH() && i1.HashL() < i2.HashL())
+}
+
 // bytes returns the bytes defining the tag
 func (i Ident) Bytes() []byte {
 	return i[hashSize:]
