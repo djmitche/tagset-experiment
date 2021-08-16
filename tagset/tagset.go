@@ -18,7 +18,8 @@ type TagSet struct {
 	// size is the total number of tags in the tagset
 	size int
 
-	// tags contains a sorted, duplicate-free list of the tags in this set.
+	// tags contains a duplicate-free list of the tags in this set.  This
+	// is not necessarily sorted!
 	tags []ident.Ident
 
 	// hashH and hashL contain the hash of all tags in the set.  Hashes are
